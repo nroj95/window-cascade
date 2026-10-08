@@ -7,7 +7,7 @@
 
 BuildTrayMenu()
 {
-    global rotate_key_menu
+    ; Editable bindings replace the fixed rotation submenu.
     global focus_tab_color_presets
     global focus_tab_color_menu
     global focus_tab_active_slot_color_menu
@@ -16,6 +16,7 @@ BuildTrayMenu()
     A_TrayMenu.Delete()
 
     A_TrayMenu.Add("How to use", ToggleWindowCascadeHelp)
+    A_TrayMenu.Add("Keybindings", ShowCascadeKeybindings)
     A_TrayMenu.Add("How to debug", ShowWindowCascadeDebugHelp)
     A_TrayMenu.Add()
     A_TrayMenu.Add("Pause auto cascading", ToggleCascadeAutoPlacement)
@@ -47,10 +48,7 @@ BuildTrayMenu()
     A_TrayMenu.Add("Focus tab colors", focus_tab_color_menu)
     A_TrayMenu.Add("Check compatibility", CheckCompatibilitySettings)
 
-    rotate_key_menu := Menu()
-    rotate_key_menu.Add("Space", SetRotateKey.Bind("Space"))
-    rotate_key_menu.Add("Tab", SetRotateKey.Bind("Tab"))
-    A_TrayMenu.Add("Rotate layers key", rotate_key_menu)
+
 
     A_TrayMenu.Add()
     A_TrayMenu.Add("Run at startup", ToggleStartup)
@@ -117,32 +115,6 @@ SetFocusTabColor(target_group, color_name, *)
     UpdateTrayMenu()
 }
 
-SetRotateKey(new_rotate_key, *)
-{
-    global settings_directory, settings_path, rotate_key
-
-    if new_rotate_key != "Space" && new_rotate_key != "Tab"
-        return
-
-    try {
-        DirCreate(settings_directory)
-        IniWrite(new_rotate_key, settings_path, "Controls", "RotateKey")
-    }
-    catch Error as err {
-        MsgBox(
-            "Could not save the Cascade rotate key.`n`n"
-            . err.Message,
-            "Window Cascade",
-            "Iconx"
-        )
-        return
-    }
-
-    rotate_key := new_rotate_key
-    BroadcastCascadeRotateKey()
-    UpdateTrayMenu()
-}
-
 ShowCascadeStatusTip(text)
 {
     CoordMode "Mouse", "Screen"
@@ -199,7 +171,7 @@ UpdateTrayMenu()
 {
     global cascade_auto_placement_paused, startup_shortcut_path
     global focus_corner_visible, debug_verbose_enabled
-    global rotate_key, rotate_key_menu
+    ; Rotate bindings now live in the shared Keybindings settings.
     global focus_tab_color_presets
     global focus_corner_active_slot_color_name
     global focus_corner_inactive_slot_color_name
@@ -240,12 +212,6 @@ UpdateTrayMenu()
         )
     }
 
-    if IsObject(rotate_key_menu) {
-        rotate_key_menu.Uncheck("Space")
-        rotate_key_menu.Uncheck("Tab")
-        rotate_key_menu.Check(rotate_key)
-    }
-
     if FileExist(startup_shortcut_path)
         A_TrayMenu.Check("Run at startup")
     else
@@ -284,38 +250,34 @@ ToggleWindowCascadeHelp(*)
 
     help_text :=
     (
-    "Caps + H             Toggle this help`n"
-    "Caps + P             Pause / resume auto cascading`n"
+    "DEFAULT KEYBINDINGS (all configurable in the tray menu)`n"
+    "Caps + H                         Toggle this help`n"
+    "Caps + P                         Pause / resume auto cascading`n"
     "`n"
-    "HINTS`n"
-    "Hold Caps + key      Run a command normally`n"
-    "Tap Caps, then key   One-shot command for 1.4 seconds (plain keys only)`n"
+    "Hold Caps + key                 Run a command`n"
+    "Tap Caps, then key              One-shot command (1.4 seconds)`n"
+    "Without the layer service, assign ordinary shortcuts in Keybindings.`n"
     "`n"
-    "CONTROLS`n"
-    "Caps + Up / Down              Swap visible window up / down`n"
-    "Caps + Left / Right           Previous / next layer in this slot`n"
-    "Caps + PgUp / PgDn            Focus visible window up / down`n"
-    "Caps + Insert                 Adopt / re-slot active window`n"
-    "Caps + Space / Tab            Next layer`n"
-    "Caps + Alt + Space / Tab      Previous layer`n"
+    "WINDOW NAVIGATION`n"
+    "Caps + Up / Down                Swap visible window up / down`n"
+    "Caps + Left / Right             Previous / next layer in this slot`n"
+    "Caps + PgUp / PgDn              Focus visible window up / down`n"
+    "Caps + Space (or Tab)           Next layer on all slots`n"
+    "Caps + Alt + Space (or Tab)     Previous layer on all slots`n"
+    "Caps + Alt + Left / Right       Move window to adjacent monitor`n"
     "`n"
-    "Caps + F4                     Close visible layers on this monitor`n"
-    "Caps + F5                     Clear debug log`n"
-    "Caps + F6                     Copy debug log to clipboard`n"
-    "Caps + F7                     Gather other monitors' cascades here`n"
-    "Caps + Delete                 Close active window`n"
-    "Caps + Home                   Bring this monitor's cascade to front`n"
-    "Caps + M                      Minimize / restore managed windows`n"
-    "Caps + Alt + Left / Right     Move to adjacent monitor`n"
+    "CASCADE COMMANDS`n"
+    "Caps + Insert                   Adopt / re-slot active window`n"
+    "Caps + Home                     Bring cascade forward`n"
+    "Caps + M                        Minimize / restore managed windows`n"
+    "Caps + F4                       Close windows on this monitor`n"
+    "Caps + F7                       Gather other monitors' cascades here`n"
+    "Caps + Delete                   Close active window`n"
+    "Caps + F5 / F6                  Clear / copy debug log`n"
     "`n"
-    "FOCUS TABS`n"
-    "Click an inactive slot's tab to focus it; click the active slot's tab to cycle layers.`n"
-    "`n"
-    "WINDOW DRAGS`n"
-    "Release near a cascade slot to snap/adopt; release away to leave the cascade.`n"
-    "`n"
-    "CAPSLOCK LAYER REQUIRED`n"
-    "Keep capslock-layer.ahk running with Window Cascade."
+    "Click a focus tab to change its exposed window.`n"
+    "Drag a window near a slot to adopt or re-slot it.`n"
+    "Caps/Pause bindings need the separate Caps + Pause Layers service."
     )
 
     state.help_gui.AddText("w780", help_text)
@@ -347,11 +309,11 @@ ShowWindowCascadeMoreHelp(*)
     more_help_text :=
     (
     "NOTES`n"
-    "Alt commands require held Caps.`n"
-    "Space / Tab for layer rotation is selected from the tray menu.`n"
+    "The default Alt commands require Caps + Pause Layers.`n"
+    "Both rotation shortcuts can be changed in Keybindings.`n"
     "When auto cascading is paused, new windows stay unmanaged; existing cascade controls remain active.`n"
     "Other window commands are blocked during native drags/resizes or while maximized/fullscreen.`n"
-    "If CapsLock Layer stops, Window Cascade exits after a short reload grace period.`n"
+    "Window Cascade continues running if Caps + Pause Layers stops.`n"
     "`n"
     "FOCUS TABS`n"
     "Each slot shows at most one tab: its exposed window, or the next layer below the active window.`n"
@@ -448,9 +410,9 @@ ShowWindowCascadeDebugHelp(*)
     "Use a clean log so a bug report contains only the actions that matter.`n"
     "`n"
     "1. Close the help windows.`n"
-    "2. Press Caps + F5 to clear the debug log.`n"
+    "2. Clear the log with the default Caps + F5 keybinding.`n"
     "3. Reproduce the problem with as few unrelated actions as possible.`n"
-    "4. Press Caps + F6 to copy the current debug log to the clipboard.`n"
+    "4. Copy the log with the default Caps + F6 keybinding.`n"
     "5. Open GitHub Issues and paste the log with a short description.`n"
     "`n"
     "Please include what you expected, what actually happened, and which`n"
@@ -483,7 +445,7 @@ ShowWindowCascadeDebugHelp(*)
 
 OpenWindowCascadeIssues(*)
 {
-    Run "https://github.com/nroj95/autohotkey/issues"
+    Run "https://github.com/nroj95/window-cascade/issues"
 }
 
 

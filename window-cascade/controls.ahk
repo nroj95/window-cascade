@@ -97,78 +97,6 @@ CaptureExplorerSpaceReshowIntent()
 
 
 ; =============================================================================
-; required CapsLock Layer dependency
-; =============================================================================
-
-IsCapsLockLayerRunning()
-{
-    static SYNCHRONIZE := 0x00100000
-
-    mutex_handle := DllCall(
-        "OpenMutex",
-        "uint", SYNCHRONIZE,
-        "int", false,
-        "str", "Local\WindowCascade.CapsLockLayer",
-        "ptr"
-    )
-
-    if !mutex_handle
-        return false
-
-    ; Do not retain our own handle: that would keep the presence signal alive
-    ; after CapsLock Layer exits.
-    DllCall("CloseHandle", "ptr", mutex_handle)
-    return true
-}
-
-RequireCapsLockLayer()
-{
-    global caps_layer_startup_wait_ms
-
-    wait_start := A_TickCount
-
-    while !IsCapsLockLayerRunning() {
-        ; The mask also handles the 32-bit tick counter wrapping on long uptimes.
-        if ((A_TickCount - wait_start) & 0xFFFFFFFF) >= caps_layer_startup_wait_ms {
-            DebugLog("Startup refused: CapsLock Layer is not running.")
-            MsgBox(
-                "Window Cascade requires CapsLock Layer.`n`n"
-                . "Start capslock-layer.ahk, then launch window-cascade.ahk.",
-                "Window Cascade",
-                "Iconx"
-            )
-            ExitApp 1
-        }
-
-        Sleep 100
-    }
-}
-
-WatchCapsLockLayer()
-{
-    global caps_layer_missing_since, caps_layer_reload_grace_ms
-    global caps_layer_dependency_lost
-
-    if IsCapsLockLayerRunning() {
-        caps_layer_missing_since := 0
-        return
-    }
-
-    ; A quick CapsLock Layer reload must not throw away the current cascade.
-    if !caps_layer_missing_since {
-        caps_layer_missing_since := A_TickCount
-        return
-    }
-
-    if ((A_TickCount - caps_layer_missing_since) & 0xFFFFFFFF) < caps_layer_reload_grace_ms
-        return
-
-    caps_layer_dependency_lost := true
-    DebugLog("Stopping: CapsLock Layer remained unavailable after the reload grace period.")
-    ExitApp 1
-}
-
-; =============================================================================
 ; command availability
 ; =============================================================================
 
@@ -232,105 +160,64 @@ ActiveWindowBlocksCascadeCommands()
 
 
 ; =============================================================================
-; CapsLock Layer messages
+; deferred, local command dispatch
 ; =============================================================================
 
-RegisterIntegrationMessages()
+QueueCascadeCommand(commandId, parameter := 0, foregroundHwnd := 0)
 {
-    global cascade_command_message, cascade_rotate_key_message
+    global cascade_command_queue, cascade_command_draining
 
-    cascade_command_message := DllCall(
-        "RegisterWindowMessage", "str", "WindowCascade.Command", "uint"
-    )
-    cascade_rotate_key_message := DllCall(
-        "RegisterWindowMessage", "str", "WindowCascade.RotateKeyChanged", "uint"
-    )
-    if !cascade_command_message || !cascade_rotate_key_message
-        throw OSError(A_LastError, "RegisterIntegrationMessages")
-
-    ; Allow one nested receiver only to enqueue commands while a prior command runs.
-    ; The receiver's tiny Critical section buffers any further posted messages.
-    OnMessage(cascade_command_message, HandleCascadeCommandMessage, 2)
-    BroadcastCascadeRotateKey()
-}
-
-BroadcastCascadeRotateKey()
-{
-    global cascade_rotate_key_message, rotate_key
-
-    if !cascade_rotate_key_message
+    if !IsCascadeEnabled()
         return
-    DllCall(
-        "PostMessage", "ptr", 0xFFFF, ; HWND_BROADCAST
-        "uint", cascade_rotate_key_message,
-        "uptr", rotate_key = "Tab" ? 2 : 1,
-        "ptr", 0, "int"
-    )
-}
 
-HandleCascadeCommandMessage(command_id, parameter, message_id, target_hwnd)
-{
-    static command_queue := []
-    static command_dispatching := false
+    foregroundPid := 0
+    if foregroundHwnd {
+        try foregroundPid := WinGetPID(foregroundHwnd)
+    }
 
-    ; Registered command messages are posted. Keep the receiver itself tiny and
-    ; Critical so another arrival is buffered instead of becoming unmonitored.
-    previous_critical := Critical("On")
+    previousCritical := Critical("On")
     try {
-        ; HWND_BROADCAST also reaches script-owned GUIs. Accept each command once
-        ; through AutoHotkey's hidden main window.
-        if target_hwnd != A_ScriptHwnd || !IsCapsLockLayerRunning()
-            return
-
-        foreground_hwnd := DllCall("GetForegroundWindow", "ptr")
-        foreground_pid := 0
-        if foreground_hwnd {
-            try foreground_pid := WinGetPID(foreground_hwnd)
-        }
-
-        command := {
-            id: command_id,
+        ; Revalidate the originating window's HWND/PID before moving or closing.
+        cascade_command_queue.Push({
+            id: commandId,
             parameter: parameter,
-            foreground_hwnd: foreground_hwnd,
-            foreground_pid: foreground_pid,
-            queued: command_dispatching
-        }
-
-        if command_dispatching {
-            command_queue.Push(command)
-            return
-        }
-
-        command_dispatching := true
+            foreground_hwnd: foregroundHwnd,
+            foreground_pid: foregroundPid,
+            queued: true
+        })
+        if !cascade_command_draining
+            SetTimer(DrainCascadeCommandQueue, -1)
     }
-    finally {
-        Critical(previous_critical)
-    }
-
-    current_command := command
-    Loop {
-        try DispatchCascadeCommand(current_command)
-        catch Error as err
-            DebugError("Cascade command dispatch", err)
-
-        ; Taking the next item and releasing the dispatcher must be atomic.
-        ; Otherwise a nested receiver could append after an empty check and leave
-        ; a command stranded with no active dispatcher.
-        previous_critical := Critical("On")
-        try {
-            if command_queue.Length {
-                current_command := command_queue.RemoveAt(1)
-            } else {
-                command_dispatching := false
-                return
-            }
-        }
-        finally {
-            Critical(previous_critical)
-        }
-    }
+    finally Critical(previousCritical)
 }
 
+DrainCascadeCommandQueue(*)
+{
+    global cascade_command_queue, cascade_command_draining
+
+    previousCritical := Critical("On")
+    if cascade_command_draining {
+        Critical(previousCritical)
+        return
+    }
+    cascade_command_draining := true
+    Critical(previousCritical)
+
+    Loop {
+        previousCritical := Critical("On")
+        if !cascade_command_queue.Length {
+            cascade_command_draining := false
+            Critical(previousCritical)
+            return
+        }
+        command := cascade_command_queue.RemoveAt(1)
+        Critical(previousCritical)
+
+        try DispatchCascadeCommand(command)
+        catch Error as failure
+            DebugError("Cascade command dispatch", failure)
+    }
+}
 
 DispatchCascadeCommand(command)
 {

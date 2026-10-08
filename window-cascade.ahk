@@ -57,6 +57,8 @@ CoordMode "Mouse", "Screen"
 
 ; Initialize shared settings/state before registering an exit handler or callbacks.
 #Include "%A_ScriptDir%\window-cascade\settings.ahk"
+#Include "%A_ScriptDir%\lib\keybindings.ahk"
+#Include "%A_ScriptDir%\lib\caps-pause-client.ahk"
 
 InitializeDebugLogging()
 OnExit(HandleScriptExit)
@@ -66,12 +68,14 @@ OnExit(HandleScriptExit)
 ; startup
 ; =============================================================================
 
-; Wait briefly for startup ordering, but never launch CapsLock Layer implicitly.
-RequireCapsLockLayer()
-
+; Native window management is independent of the optional keyboard layer service.
 BuildTrayMenu()
-
-RegisterIntegrationMessages()
+try InitializeCascadeKeybindings()
+catch Error as bindingError {
+    DebugError("Initialize keybindings", bindingError)
+    MsgBox("Keyboard shortcuts could not be initialized. Window Cascade will still run."
+        . "`n`n" bindingError.Message, "Window Cascade", "Icon!")
+}
 
 InitializeCascadeDisplays()
 
@@ -79,7 +83,7 @@ SeedStartupWindows()
 
 StartWindowHooks()
 
-SetTimer(WatchCapsLockLayer, caps_layer_check_ms)
+; Keybindings manages the optional service connection.
 
 ; Start recurring Cascade activity after the native hooks are installed.
 if IsCascadeEnabled() {
@@ -95,6 +99,7 @@ if IsCascadeEnabled() {
 ; Keep all includes here; feature modules do not include each other.
 
 #Include "%A_ScriptDir%\window-cascade\controls.ahk"
+#Include "%A_ScriptDir%\window-cascade\keybindings.ahk"
 #Include "%A_ScriptDir%\window-cascade\discovery.ahk"
 #Include "%A_ScriptDir%\window-cascade\window-drag.ahk"
 #Include "%A_ScriptDir%\window-cascade\layout.ahk"
@@ -117,9 +122,9 @@ if IsCascadeEnabled() {
 
 HandleScriptExit(exit_reason, exit_code)
 {
-    global caps_layer_dependency_lost, focus_corner_overlays
+    ShutdownCascadeKeybindings()
 
-    SetTimer(WatchCapsLockLayer, 0)
+    ; No mandatory CapsLock-layer watchdog.
     try StopFocusTabClick()
     try StopWindowHooks()
     try StopCascadeDisplays()
@@ -128,17 +133,5 @@ HandleScriptExit(exit_reason, exit_code)
     ; This is a plain restore, not a final cascade layout or focus operation.
     RestoreMinimizedCascadeWindowsOnExit()
 
-    if exit_reason = "Exit" && caps_layer_dependency_lost {
-        for hwnd, overlay in focus_corner_overlays
-            try overlay.gui.Hide()
 
-        ; OnExit does not allow timers/hotkeys to resume while this notice is open.
-        MsgBox(
-            "Window Cascade stopped because CapsLock Layer is not running.`n`n"
-            . "Any windows minimized by Caps + M were restored where possible.`n"
-            . "Start capslock-layer.ahk, then relaunch window-cascade.ahk.",
-            "Window Cascade",
-            "Icon!"
-        )
-    }
 }

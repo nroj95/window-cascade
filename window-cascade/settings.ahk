@@ -110,11 +110,7 @@ focus_corner_active_slot_alpha := 255
 ; Only watch for a missed mouse-up while a focus-tab click owns the button.
 focus_tab_release_poll_ms := 50
 
-; The dependency must be running. Startup and reload grace periods tolerate
-; normal process-start ordering without introducing standalone operation.
-caps_layer_startup_wait_ms := 5000
-caps_layer_reload_grace_ms := 3000
-caps_layer_check_ms := 1000
+; Caps + Pause Layers is optional; Keybindings handles reconnection.
 
 
 settings_directory := EnvGet("LOCALAPPDATA") "\Window Cascade"
@@ -171,8 +167,9 @@ rotate_key_menu := 0
 focus_tab_color_menu := 0
 focus_tab_active_slot_color_menu := 0
 focus_tab_inactive_slot_color_menu := 0
-caps_layer_missing_since := 0
-caps_layer_dependency_lost := false
+cascade_keybindings := 0
+cascade_command_queue := []
+cascade_command_draining := false
 
 pending_windows := Map()
 cascade_launch_hint := 0
@@ -239,14 +236,13 @@ window_destroy_hook := 0
 window_move_size_hook := 0
 window_restore_hook := 0
 
-cascade_command_message := 0
-cascade_rotate_key_message := 0
+
 
 ; =============================================================================
-; CapsLock Layer command protocol
+; local command IDs preserved from the original window-manager dispatcher
 ; =============================================================================
 
-; Keep these command IDs in sync with capslock-layer.ahk.
+; There is no longer a cross-process command-number contract.
 cascade_command_focus_previous := 1
 cascade_command_focus_next := 2
 cascade_command_rotate_slot_previous := 3

@@ -14,30 +14,6 @@ InitializeDebugLogging()
 
     try DirCreate(settings_directory)
 
-    reset_message := DllCall(
-        "RegisterWindowMessage",
-        "str", "WindowDebug.ResetLogs",
-        "uint"
-    )
-    copy_message := DllCall(
-        "RegisterWindowMessage",
-        "str", "WindowCascade.CopyDebugLog",
-        "uint"
-    )
-
-    if reset_message {
-        OnMessage(
-            reset_message,
-            HandleDebugResetLogsMessage
-        )
-    }
-    if copy_message {
-        OnMessage(
-            copy_message,
-            HandleDebugCopyLogMessage
-        )
-    }
-
     OnError(LogUnhandledError)
 
     ; Rotate an oversized log before the new session header is appended.
@@ -60,21 +36,7 @@ ToggleVerboseDebugLogging(*)
     UpdateTrayMenu()
 }
 
-HandleDebugResetLogsMessage(command_id, parameter, message_id, target_hwnd)
-{
-    if target_hwnd != A_ScriptHwnd || !IsCascadeEnabled()
-        return
-    ShowCascadeStatusTip(ResetDebugLog() ? "debug log cleared" : "debug log clear failed")
-}
 
-HandleDebugCopyLogMessage(command_id, parameter, message_id, target_hwnd)
-{
-    ; Copying is observational: do not cancel focus recovery, activate a window,
-    ; clear the log, or emit another log entry that would contaminate the snapshot.
-    if target_hwnd != A_ScriptHwnd || !IsCascadeEnabled()
-        return
-    ShowCascadeStatusTip(CopyDebugLogToClipboard() ? "debug log copied" : "debug log copy failed")
-}
 
 CopyDebugLogToClipboard()
 {

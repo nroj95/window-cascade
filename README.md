@@ -10,7 +10,7 @@ supports multiple monitors, window stacks, keyboard navigation, drag-and-drop pl
 
 run `window-cascade.ahk`.
 
-this initial version requires the legacy `capslock-layer.ahk` script to be running for keyboard commands. integration with the newer Caps + Pause Layers service is planned.
+keyboard shortcuts are configurable through the **Keybindings** tray menu. Caps/Pause shortcuts require the separate [Caps + Pause Layers](https://github.com/nroj95/caps-pause-layers) service; automatic cascading and ordinary keyboard shortcuts work without it.
 
 see [documentation](window-cascade/README.md) for controls and settings.
 

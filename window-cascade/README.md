@@ -2,7 +2,7 @@
 
 launch `../window-cascade.ahk`, not the files in this directory. the launcher owns the process, icon, logging setup, startup sequence, registered command handler, and exit callback. these files are explicitly included into that same AutoHotkey v2 script. they are not separate running scripts or independently reusable libraries.
 
-`capslock-layer.ahk` remains a separate, self-contained script and does not require Window Cascade. the dependency is one-way: Window Cascade requires CapsLock Layer for its keyboard command bindings and does not provide standalone keyboard fallbacks.
+Window Cascade uses the shared Keybindings library and an optional Caps + Pause Layers service. Window management works without a running layer service; ordinary shortcuts can be assigned through the tray menu. The legacy `capslock-layer.ahk` interface is no longer used.
 
 ## where to make changes
 
@@ -31,19 +31,25 @@ only `settings.ahk` contains top-level state initialization. the launcher includ
 
 the remaining modules primarily contain function definitions and event/message entry points. all includes are explicit in the launcher; modules do not include each other. the launcher anchors include paths to `A_ScriptDir` so they do not depend on the shell's current directory.
 
-keyboard commands are owned by CapsLock Layer and delivered to Window Cascade through the registered command interface. keep that separation intact when adding or moving shortcuts.
+keyboard shortcuts are registered by the Keybindings library, and action events dispatch locally to Window Cascade. Caps/Pause chords are delivered through the optional service.
 
 ## integration contracts and paths
 
-keep the `cascade_command_*` IDs in `settings.ahk` synchronized with the matching constants in `capslock-layer.ahk`. they intentionally remain duplicated so CapsLock Layer has no include dependency on Window Cascade.
+`window-cascade/keybindings.ahk` maps action IDs and first-run defaults onto the
+existing window-management dispatcher. `lib/keybindings.ahk` provides persistent
+configuration, conflict checks and the configuration UI. The optional
+`lib/caps-pause-client.ahk` connects to the independent layer service.
 
-`WindowCascade.Command`, the CapsLock Layer presence mutex, and the registered-message parameter contract form the cross-process integration surface. cross-monitor commands pass the original active window handle through that message path so the intended window remains the move target.
+The original `RotateKey` setting is read once as the first-run default for the
+two rotation actions. After that, edit their bindings in Keybindings. The legacy
+rotation submenu and cross-process command messages are no longer used.
 
-`WindowCascade.RotateKeyChanged` broadcasts the committed rotate-key setting: `wParam = 1` means Space, `wParam = 2` means Tab, and `lParam = 0`. Window Cascade announces it at startup and after a successful tray-menu change. CapsLock Layer reads the persisted setting at startup, then uses this notification so its `#HotIf` predicate stays memory-only. reload both scripts after editing the INI externally; tray changes apply without a reload. existing command IDs remain unchanged; `Caps + P` uses command ID 17.
+The launcher and icon retain their paths. Window Cascade settings/logs remain
+under `%LOCALAPPDATA%\Window Cascade`; Keybindings configuration is kept
+separately under `%LOCALAPPDATA%\nroj\AutoHotkey\keybindings-v1`.
 
-the launcher remains at the repository root. startup shortcuts and `icons/window-cascade.ico` keep their existing paths. Window Cascade stores `settings.ini` and `window-cascade-debug.log` under `%LOCALAPPDATA%\Window Cascade`.
-
-the help UI has a main page and a **More help** page. **Back** or `Escape` from More help returns to the main page; `Escape` from the main page closes help.
+With the layer service offline, the window hooks, drag placement, focus tabs,
+tray commands and any configured ordinary hotkeys remain available.
 
 ## focus-tab clicks
 
