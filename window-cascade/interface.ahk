@@ -270,25 +270,16 @@ BuildCascadeHelpText()
     text := ""
     spaces := "                                                            "
 
-    ; Labels, categories, both slots, and enabled state all come from the
-    ; running manager. New actions in these categories appear automatically.
-    for category in ["interface", "window navigation", "cascade commands", "diagnostics"] {
-        if category = "window navigation" {
-            text .= "`nHold Caps + key: run a layer shortcut.`n"
-            text .= "Tap Caps, then key: one-shot shortcut (1.4 seconds).`n"
-        }
-        if category != "interface"
-            text .= "`n" StrUpper(category) "`n"
+    ; Show all actions using their current saved bindings.
+    text .= "Hold Caps or Pause for a layer shortcut.`n"
+    text .= "Tap a layer key for one-shot input (1.4 seconds).`n`n"
 
-        for actionId, action in cascade_keybindings.actions {
-            if action.category != category
-                continue
-            binding := CascadeHelpActionBinding(actionId, configuration)
-            if StrLen(binding) > 32
-                text .= binding "`n    " action.label "`n"
-            else
-                text .= binding SubStr(spaces, 1, 34 - StrLen(binding)) action.label "`n"
-        }
+    for actionId, action in cascade_keybindings.actions {
+        binding := CascadeHelpActionBinding(actionId, configuration)
+        if StrLen(binding) > 32
+            text .= binding "`n    " action.label "`n"
+        else
+            text .= binding SubStr(spaces, 1, 34 - StrLen(binding)) action.label "`n"
     }
 
     text .= "`nClick a focus tab to change its exposed window.`n"

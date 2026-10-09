@@ -26,51 +26,50 @@ InitializeCascadeKeybindings()
     rotationKey := rotate_key = "Tab" ? "Tab" : "Space"
 
     CascadeAddAction(manager, "swap-up", "swap visible window up",
-        cascade_command_swap_window_up, "Caps + Up", "window navigation")
+        cascade_command_swap_window_up, "Caps + Up")
     CascadeAddAction(manager, "swap-down", "swap visible window down",
-        cascade_command_swap_window_down, "Caps + Down", "window navigation")
+        cascade_command_swap_window_down, "Caps + Down")
     CascadeAddAction(manager, "slot-previous", "previous layer in this slot",
-        cascade_command_rotate_slot_previous, "Caps + Left", "window navigation")
+        cascade_command_rotate_slot_previous, "Caps + Left")
     CascadeAddAction(manager, "slot-next", "next layer in this slot",
-        cascade_command_rotate_slot_next, "Caps + Right", "window navigation")
+        cascade_command_rotate_slot_next, "Caps + Right")
     CascadeAddAction(manager, "focus-previous", "focus visible window up",
-        cascade_command_focus_previous, "Caps + PgUp", "window navigation")
+        cascade_command_focus_previous, "Caps + PgUp")
     CascadeAddAction(manager, "focus-next", "focus visible window down",
-        cascade_command_focus_next, "Caps + PgDn", "window navigation")
+        cascade_command_focus_next, "Caps + PgDn")
     CascadeAddAction(manager, "rotate-next", "rotate all slots forward",
-        cascade_command_rotate_layers, "Caps + " rotationKey, "window navigation")
+        cascade_command_rotate_layers, "Caps + " rotationKey)
     CascadeAddAction(manager, "rotate-previous", "rotate all slots backward",
-        cascade_command_rotate_layers, "Caps + Alt + " rotationKey,
-        "window navigation", -1)
+        cascade_command_rotate_layers, "Caps + Alt + " rotationKey, -1)
     CascadeAddAction(manager, "move-left", "move window to left monitor",
-        cascade_command_move_monitor_left, "Caps + Alt + Left", "window navigation", "foreground")
+        cascade_command_move_monitor_left, "Caps + Alt + Left", "foreground")
     CascadeAddAction(manager, "move-right", "move window to right monitor",
-        cascade_command_move_monitor_right, "Caps + Alt + Right", "window navigation", "foreground")
+        cascade_command_move_monitor_right, "Caps + Alt + Right", "foreground")
 
     CascadeAddAction(manager, "adopt", "adopt or re-slot active window",
-        cascade_command_adopt_active, "Caps + Insert", "cascade commands")
+        cascade_command_adopt_active, "Caps + Insert")
     CascadeAddAction(manager, "bring-forward", "bring this monitor's cascade forward",
-        cascade_command_bring_forward, "Caps + Home", "cascade commands")
+        cascade_command_bring_forward, "Caps + Home")
     CascadeAddAction(manager, "minimize", "minimize or restore managed windows",
-        cascade_command_toggle_minimize, "Caps + M", "cascade commands")
+        cascade_command_toggle_minimize, "Caps + M")
     CascadeAddAction(manager, "auto-placement", "pause or resume automatic cascading",
-        cascade_command_toggle_auto_placement, "Caps + P", "cascade commands")
+        cascade_command_toggle_auto_placement, "Caps + P")
     CascadeAddAction(manager, "gather", "gather cascades onto this monitor",
-        cascade_command_gather_to_monitor, "Caps + F7", "cascade commands")
+        cascade_command_gather_to_monitor, "Caps + F7")
     CascadeAddAction(manager, "close-active", "close active window",
-        cascade_command_close_active, "Caps + Delete", "cascade commands")
+        cascade_command_close_active, "Caps + Delete")
     CascadeAddAction(manager, "close-monitor", "close this monitor's cascade",
-        cascade_command_close_scope, "Caps + F4", "cascade commands")
+        cascade_command_close_scope, "Caps + F4")
     CascadeAddAction(manager, "help", "show Window Cascade help",
-        cascade_command_show_help, "Caps + H", "interface")
+        cascade_command_show_help, "Caps + H")
     CascadeAddAction(manager, "keybindings", "open Keybindings",
-        -3, "Caps + K", "interface")
+        -3, "Caps + K")
 
     ; Local diagnostics (not the legacy broadcast message interface).
     CascadeAddAction(manager, "reset-log", "clear debug log",
-        -1, "Caps + F5", "diagnostics")
+        -1, "Caps + F5")
     CascadeAddAction(manager, "copy-log", "copy debug log",
-        -2, "Caps + F6", "diagnostics")
+        -2, "Caps + F6")
 
     ; Store the instance before Start(), since startup reports are synchronous.
     cascade_keybindings := manager
@@ -82,10 +81,10 @@ InitializeCascadeKeybindings()
     }
 }
 
-CascadeAddAction(manager, id, label, commandId, binding, category, parameter := 0)
+CascadeAddAction(manager, id, label, commandId, binding, parameter := 0)
 {
     manager.AddAction(id, label, CascadeBindingEvent.Bind(commandId, parameter),
-        [binding], {category: category})
+        [binding], {category: "Window Cascade"})
 }
 
 CascadeBindingEvent(commandId, parameter, event)
