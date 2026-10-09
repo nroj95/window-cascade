@@ -228,12 +228,82 @@ GetWindowCascadeHelpState()
     static state := {
         help_gui: 0,
         help_icons: [],
+        help_text: 0,
         more_help_gui: 0,
         more_help_icons: []
     }
     return state
 }
 
+
+CascadeHelpActionBinding(actionId, configuration := 0)
+{
+    global cascade_keybindings
+
+    if !IsObject(cascade_keybindings)
+        return "(unavailable)"
+    if !IsObject(configuration)
+        configuration := cascade_keybindings.GetConfiguration()
+    if !configuration.Has(actionId)
+        return "(unavailable)"
+
+    setting := configuration[actionId]
+    bindings := []
+    for encoded in setting.bindings {
+        parsed := Keybindings.Parse(encoded)
+        if IsObject(parsed)
+            bindings.Push(parsed.label)
+    }
+
+    label := bindings.Length ? Keybindings.Join(bindings, " / ") : "(unassigned)"
+    return setting.enabled ? label : label " (disabled)"
+}
+
+BuildCascadeHelpText()
+{
+    global cascade_keybindings
+
+    if !IsObject(cascade_keybindings) || !cascade_keybindings.running
+        return "Keybindings are unavailable. Window management and the tray menu still work."
+
+    configuration := cascade_keybindings.GetConfiguration()
+    text := ""
+    spaces := "                                                            "
+
+    ; Labels, categories, both slots, and enabled state all come from the
+    ; running manager. New actions in these categories appear automatically.
+    for category in ["interface", "window navigation", "cascade commands", "diagnostics"] {
+        if category = "window navigation" {
+            text .= "`nHold Caps + key: run a layer shortcut.`n"
+            text .= "Tap Caps, then key: one-shot shortcut (1.4 seconds).`n"
+        }
+        if category != "interface"
+            text .= "`n" StrUpper(category) "`n"
+
+        for actionId, action in cascade_keybindings.actions {
+            if action.category != category
+                continue
+            binding := CascadeHelpActionBinding(actionId, configuration)
+            if StrLen(binding) > 32
+                text .= binding "`n    " action.label "`n"
+            else
+                text .= binding SubStr(spaces, 1, 34 - StrLen(binding)) action.label "`n"
+        }
+    }
+
+    text .= "`nClick a focus tab to change its exposed window.`n"
+    text .= "Drag near a slot to adopt or re-slot a window.`n"
+    text .= "Caps/Pause shortcuts require the separate Caps + Pause Layers service.`n"
+    text .= "Bindings shown are saved assignments; conflicts can prevent activation."
+    return text
+}
+
+RefreshCascadeHelpBindings(*)
+{
+    state := GetWindowCascadeHelpState()
+    if IsObject(state.help_text)
+        state.help_text.Text := BuildCascadeHelpText()
+}
 
 ToggleWindowCascadeHelp(*)
 {
@@ -248,39 +318,9 @@ ToggleWindowCascadeHelp(*)
     state.help_icons := SetWindowCascadeHelpIcons(state.help_gui)
     state.help_gui.SetFont("s10", "Cascadia Mono")
 
-    help_text :=
-    (
-    "DEFAULT KEYBINDINGS (all configurable in the tray menu)`n"
-    "Caps + H                         Toggle this help`n"
-    "Caps + P                         Pause / resume auto cascading`n"
-    "`n"
-    "Hold Caps + key                 Run a command`n"
-    "Tap Caps, then key              One-shot command (1.4 seconds)`n"
-    "Without the layer service, assign ordinary shortcuts in Keybindings.`n"
-    "`n"
-    "WINDOW NAVIGATION`n"
-    "Caps + Up / Down                Swap visible window up / down`n"
-    "Caps + Left / Right             Previous / next layer in this slot`n"
-    "Caps + PgUp / PgDn              Focus visible window up / down`n"
-    "Caps + Space (or Tab)           Next layer on all slots`n"
-    "Caps + Alt + Space (or Tab)     Previous layer on all slots`n"
-    "Caps + Alt + Left / Right       Move window to adjacent monitor`n"
-    "`n"
-    "CASCADE COMMANDS`n"
-    "Caps + Insert                   Adopt / re-slot active window`n"
-    "Caps + Home                     Bring cascade forward`n"
-    "Caps + M                        Minimize / restore managed windows`n"
-    "Caps + F4                       Close windows on this monitor`n"
-    "Caps + F7                       Gather other monitors' cascades here`n"
-    "Caps + Delete                   Close active window`n"
-    "Caps + F5 / F6                  Clear / copy debug log`n"
-    "`n"
-    "Click a focus tab to change its exposed window.`n"
-    "Drag a window near a slot to adopt or re-slot it.`n"
-    "Caps/Pause bindings need the separate Caps + Pause Layers service."
-    )
+    state.help_text := state.help_gui.AddText(
+        "w780", BuildCascadeHelpText())
 
-    state.help_gui.AddText("w780", help_text)
     more_help_button := state.help_gui.AddButton("xm+660 w120", "More help")
     more_help_button.OnEvent("Click", ShowWindowCascadeMoreHelp)
 
@@ -309,8 +349,8 @@ ShowWindowCascadeMoreHelp(*)
     more_help_text :=
     (
     "NOTES`n"
-    "The default Alt commands require Caps + Pause Layers.`n"
-    "Both rotation shortcuts can be changed in Keybindings.`n"
+    "Caps/Pause shortcuts require the separate Caps + Pause Layers service.`n"
+    "All keyboard shortcuts can be changed in Keybindings.`n"
     "When auto cascading is paused, new windows stay unmanaged; existing cascade controls remain active.`n"
     "Other window commands are blocked during native drags/resizes or while maximized/fullscreen.`n"
     "Window Cascade continues running if Caps + Pause Layers stops.`n"
@@ -326,12 +366,12 @@ ShowWindowCascadeMoreHelp(*)
     "`n"
     "WINDOW DRAGS`n"
     "Slot matching uses the window's visible top-left corner, not the mouse pointer or focus tab.`n"
-    "The decision is made on release, never while holding. Caps + Insert still works.`n"
+    "The decision is made on release; the adopt shortcut is configurable in Keybindings.`n"
     "Dropped windows keep their slot; a cascade smaller than one full layer may compact inward.`n"
     "`n"
     "TRAY`n"
     "How to debug               Isolate a bug and prepare a GitHub report`n"
-    "Pause auto cascading       Same new-window auto-placement toggle as Caps + P`n"
+    "Pause auto cascading       Toggles automatic placement; its shortcut is configurable`n"
     "Show focus tabs            Show / hide the faint focus tabs`n"
     "Focus tab colors           Choose colors for the active and inactive slots`n"
     "Check compatibility        Check conflicting settings`n"
@@ -382,6 +422,7 @@ CloseWindowCascadeHelp(*)
     if state.help_gui {
         try state.help_gui.Destroy()
         state.help_gui := 0
+        state.help_text := 0
         ; Destroy the GUI before releasing the HICONs it was displaying.
         for icon_handle in state.help_icons
             DllCall("DestroyIcon", "ptr", icon_handle, "int")
@@ -410,9 +451,9 @@ ShowWindowCascadeDebugHelp(*)
     "Use a clean log so a bug report contains only the actions that matter.`n"
     "`n"
     "1. Close the help windows.`n"
-    "2. Clear the log with the default Caps + F5 keybinding.`n"
+    "2. Clear the log (binding: " CascadeHelpActionBinding("reset-log") ").`n"
     "3. Reproduce the problem with as few unrelated actions as possible.`n"
-    "4. Copy the log with the default Caps + F6 keybinding.`n"
+    "4. Copy the log (binding: " CascadeHelpActionBinding("copy-log") ").`n"
     "5. Open GitHub Issues and paste the log with a short description.`n"
     "`n"
     "Please include what you expected, what actually happened, and which`n"
@@ -421,7 +462,7 @@ ShowWindowCascadeDebugHelp(*)
     "If the normal log is not detailed enough, enable Verbose debug logging`n"
     "from the tray menu, clear the log again, and repeat the reproduction.`n"
     "`n"
-    "Caps + F6 does not clear the log or open/focus another window, so the`n"
+    "Copying the log does not clear it or focus another window, so the`n"
     "captured history remains isolated."
     )
 

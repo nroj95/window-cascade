@@ -63,6 +63,8 @@ InitializeCascadeKeybindings()
         cascade_command_close_scope, "Caps + F4", "cascade commands")
     CascadeAddAction(manager, "help", "show Window Cascade help",
         cascade_command_show_help, "Caps + H", "interface")
+    CascadeAddAction(manager, "keybindings", "open Keybindings",
+        -3, "Caps + K", "interface")
 
     ; Local diagnostics (not the legacy broadcast message interface).
     CascadeAddAction(manager, "reset-log", "clear debug log",
@@ -102,6 +104,11 @@ CascadeBindingEvent(commandId, parameter, event)
         return
     }
 
+    if commandId = -3 {
+        SetTimer(ShowCascadeKeybindings, -1)
+        return
+    }
+
     ; Move commands need the foreground HWND from the original input event.
     if parameter = "foreground"
         parameter := event.foregroundHwnd
@@ -121,6 +128,8 @@ CascadeCopyLogFromBinding(*)
 CascadeKeybindingStatus(message)
 {
     DebugLog("Keybindings: " message)
+    if message = "keybinding changes saved"
+        SetTimer(RefreshCascadeHelpBindings, -1)
 }
 
 ShowCascadeKeybindings(*)
