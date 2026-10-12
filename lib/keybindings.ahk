@@ -133,6 +133,7 @@ class Keybindings {
         action := {id: actionId, label: label, callback: callback, category: category,
             repeat: !!Keybindings.Option(options, "repeat", false),
             defaultEnabled: !!Keybindings.Option(options, "enabled", true),
+            trackEdits: !!Keybindings.Option(options, "trackEdits", false),
             defaults: this._NormalizeSlots(IsObject(defaults) ? defaults : [])}
         this.actions[actionId] := action
         return this
@@ -217,6 +218,22 @@ class Keybindings {
 
     ; Returns a defensive copy of the single saved configuration.
     GetConfiguration() => this._CloneConfiguration(this.configuration)
+
+    ; True after a successful explicit GUI/remote edit, including a no-op clear.
+    ; Programmatic Apply() does not record user intent. Stored with the bindings.
+    WasExplicitlyEdited(actionId) {
+        Keybindings.Id(actionId)
+        if !this.actions.Has(actionId)
+            throw ValueError("Unknown keybinding action: " actionId)
+        if !this.document.Has("explicit-edits")
+            return false
+        edits := this.document["explicit-edits"]
+        if !edits.Has(actionId)
+            return false
+        if edits[actionId] != "1"
+            throw Error("Invalid explicit-edit marker for " actionId)
+        return true
+    }
 
     ; Read-only discovery for the future multi-script configuration window.
     ; The owning process remains authoritative for changes.
@@ -402,13 +419,23 @@ class Keybindings {
             current := this.configuration[actionId]
             if current.enabled != expectedEnabled || current.bindings[slot] != expectedSignature
                 return 2
-            if expectedSignature = replacement
+            if expectedSignature = replacement {
+                ; An explicit clear of an empty slot is still a user decision.
+                ; Do not create a commit for owners that have not opted in.
+                if this.actions[actionId].trackEdits {
+                    try this.ApplyEdited(this.GetConfiguration(), [actionId])
+                    catch Error as rejectedNoop {
+                        this._Report("remote edit refused: " rejectedNoop.Message)
+                        return 3
+                    }
+                }
                 return 6
+            }
             updated := this.GetConfiguration()
             updated[actionId].bindings[slot] := replacement
             ; Saved-conflict approval is deliberately unsupported over IPC.
             ; The owner must reject it instead of silently overriding a warning.
-            try this.Apply(updated)
+            try this.ApplyEdited(updated, [actionId])
             catch KB_SavedConflict as savedConflict {
                 this._Report("remote edit refused: " savedConflict.Message)
                 return 3
@@ -454,17 +481,21 @@ class Keybindings {
             "uint", 0x23, "uint", 350, "ptr*", &response, "ptr")
         return !!delivered && response = (challenge ^ 0x4B425031)
     }
-    ; Build one category per owner, regardless of that owner's internal modules.
-    ; External rows are editable only when their owner confirms IPC support.
+    ; Treat each category of a multi-category script as a full heading in the
+    ; unified list. Single-category scripts retain their original script heading.
+    ; Each row still carries the owning script ID for editing and conflict checks.
     static DisplayRows(participants, search := "") {
         rows := []
         search := StrLower(Trim(search))
         for participant in participants {
-            matching := []
+            grouped := Map()
+            categoryOrder := []
+            allCategories := Map()
             for action in participant.actions {
                 ; Module enablement belongs to the owning script.
                 if !action.enabled
                     continue
+                allCategories[action.category] := true
                 searchable := participant.name " " action.id " " action.category " " action.label
                 for encoded in action.bindings {
                     parsed := Keybindings.Parse(encoded)
@@ -473,18 +504,25 @@ class Keybindings {
                 }
                 if search != "" && !InStr(StrLower(searchable), search)
                     continue
-                matching.Push({id: action.id, label: action.label,
+                if !grouped.Has(action.category) {
+                    grouped[action.category] := []
+                    categoryOrder.Push(action.category)
+                }
+                grouped[action.category].Push({id: action.id, label: action.label,
                     ownerId: participant.id, setting: action,
                     editable: (participant.id = participants[1].id || participant.controlReady)})
             }
-            if !matching.Length
+            if !categoryOrder.Length
                 continue
-            heading := participant.name
-            if participant.id != participants[1].id && !participant.controlReady
-                heading .= " (view only)"
-            rows.Push({id: "", label: heading, ownerId: participant.id})
-            for entry in matching
-                rows.Push(entry)
+            for category in categoryOrder {
+                heading := allCategories.Count > 1 ? category : participant.name
+                if participant.id != participants[1].id && !participant.controlReady
+                    heading .= " (view only)"
+                rows.Push({id: "", kind: "owner", label: heading,
+                    ownerId: participant.id})
+                for entry in grouped[category]
+                    rows.Push(entry)
+            }
         }
         return rows
     }
@@ -545,6 +583,22 @@ class Keybindings {
         if !this.running || this.disposed
             throw Error("Start the manager before applying configuration.")
         this._Commit(configuration, true, acceptSavedConflicts)
+    }
+
+    ; For direct GUI or verified remote user edits. Persist opted-in action
+    ; history in the SAME atomic manifest write as the shortcut configuration.
+    ; Non-interactive Apply() intentionally never marks explicit user intent.
+    ApplyEdited(configuration, actionIds, acceptSavedConflicts := false) {
+        if !(actionIds is Array)
+            throw TypeError("Edited action IDs must be an array.")
+        for actionId in actionIds {
+            Keybindings.Id(actionId)
+            if !this.actions.Has(actionId)
+                throw ValueError("Unknown keybinding action: " actionId)
+        }
+        if !this.running || this.disposed
+            throw Error("Start the manager before applying configuration.")
+        this._Commit(configuration, true, acceptSavedConflicts, actionIds)
     }
 
     ; Consumers can pause inputs for a module selector or power transition
@@ -881,7 +935,7 @@ class Keybindings {
         return {configuration: normalized, routes: routes}
     }
 
-    _Commit(configuration, strict, acceptSaved) {
+    _Commit(configuration, strict, acceptSaved, explicitEdits := 0) {
         if this.applying
             throw Error("A keybinding update is already in progress.")
         candidate := this._CandidateRoutes(configuration)
@@ -945,7 +999,8 @@ class Keybindings {
                     throw Error("Keybinding conflict:`n`n" Keybindings.Join(conflicts, "`n"))
                 if strict && !acceptSaved && savedWarnings.Length
                     throw KB_SavedConflict("Saved binding warning:`n`n" Keybindings.Join(savedWarnings, "`n"))
-                newDocument := this._MakeDocument(candidate.configuration, candidate.routes)
+                newDocument := this._MakeDocument(candidate.configuration, candidate.routes,
+                    explicitEdits)
                 KB_Manifest.WriteAtomic(this.path, newDocument)
                 published := true
                 this.configuration := candidate.configuration
@@ -971,7 +1026,7 @@ class Keybindings {
         finally this.applying := false
     }
 
-    _MakeDocument(configuration, routes) {
+    _MakeDocument(configuration, routes, explicitEdits := 0) {
         ; Preserve unrelated metadata, but retire old profile sections after migration.
         document := Map()
         for section, rows in this.document
@@ -986,6 +1041,18 @@ class Keybindings {
         document["catalog"] := Map()
         for actionId, action in this.actions
             document["catalog"][actionId] := action.category "`t" action.label
+        if IsObject(explicitEdits) {
+            ; Clone the section before editing: a failed write must not change
+            ; the old in-memory document's history or future retry semantics.
+            edits := Map()
+            if document.Has("explicit-edits")
+                edits := document["explicit-edits"].Clone()
+            for actionId in explicitEdits
+                if this.actions[actionId].trackEdits
+                    edits[actionId] := "1"
+            if edits.Count
+                document["explicit-edits"] := edits
+        }
         ; Retire the old profile sections on first successful save.
         for sectionName in ["profile:standalone", "profile:layered", "profile:default"]
             if document.Has(sectionName)
@@ -1543,7 +1610,7 @@ class Keybindings {
             return
         configuration := this.GetConfiguration()
         configuration[actionId].bindings := this.actions[actionId].defaults.Clone()
-        this._SaveConfiguration(configuration)
+        this._SaveConfiguration(configuration, [actionId])
     }
 
     _ResetAll(*) {
@@ -1551,20 +1618,24 @@ class Keybindings {
             this.name, "YesNo Icon?") != "Yes"
             return
         configuration := this.GetConfiguration()
-        for actionId, action in this.actions
-            if configuration[actionId].enabled
+        editedActions := []
+        for actionId, action in this.actions {
+            if configuration[actionId].enabled {
                 configuration[actionId].bindings := action.defaults.Clone()
-        this._SaveConfiguration(configuration)
+                editedActions.Push(actionId)
+            }
+        }
+        this._SaveConfiguration(configuration, editedActions)
     }
 
-    _SaveConfiguration(configuration) {
+    _SaveConfiguration(configuration, editedActions := 0) {
         try {
-            try this.Apply(configuration)
+            try this.ApplyEdited(configuration, IsObject(editedActions) ? editedActions : [])
             catch KB_SavedConflict as savedWarning {
                 if MsgBox(savedWarning.Message "`n`nKeep these assignments anyway?",
                     this.name, "YesNo Icon!") != "Yes"
                     return false
-                this.Apply(configuration, true)
+                this.ApplyEdited(configuration, IsObject(editedActions) ? editedActions : [], true)
             }
             this._Report("keybinding changes saved")
             this._RenderSettings()
@@ -1795,7 +1866,7 @@ class Keybindings {
         }
         configuration := this.GetConfiguration()
         configuration[actionId].bindings[slot] := value
-        this._SaveConfiguration(configuration)
+        this._SaveConfiguration(configuration, [actionId])
     }
 
     _RecordingTimedOut(*) => this._EndRecording()
